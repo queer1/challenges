@@ -72,3 +72,6 @@ Furthermore not every second is tried, but one iteration skips three seconds
 (note that the server divides both timeofday and the input by ten in order to
 account for latency issues etc, and therefore we can skip three to five
 seconds per iteration.)
+
+After all processes have finished, we find the following key in the logs;
+29c3_081e757b198568170ec2e3206344cb3b.
