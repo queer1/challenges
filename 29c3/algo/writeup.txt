@@ -59,9 +59,9 @@ by implementing it in Python, resolving in the following code.
     v14 = v0 ^ 0xBEA70DC6
     v15 = v15 ^ 0x22953653
 
-    print struct.pack('3I', v13, v14, v15)
+    print '29C3_%s' % struct.pack('3I', v13, v14, v15)
 
 After running this python code for a few milliseconds, we get the following
 key.
 
-Th!sW4sSl()w
+29C3_Th!sW4sSl()w
