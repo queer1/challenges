@@ -1,0 +1,55 @@
+Reverse100 is a 16bit MS-DOS application, packed with pklite.
+
+After unpacking it with pklite and loading the binary into IDA Pro, a few
+things became clear after some initial reversing. A bunch of 16bit interrupts,
+various interesting if statements, and quite some semi-encrypted data.
+
+After looking through the binary for some time, it appeared to me that there's
+an infinite loop - some kind of menu. On the top of this loop, there's an
+interrupt which reads a character from the keyboard. This confirms our
+thought.
+
+Now, it's been a while since I've ran DOSBox. I think the last time was for
+Supaplex, which is a totally awesome game I used to play when I was little.
+
+Anyway, executing the following command will execute the rev100 binary for us.
+(Note that filenames that are not 8.3 are invalid in dosbox, i.e., the
+filename of the executable must not be longer than 8 characters.)
+
+$ dosbox rev100.exe
+
+We see the following totally awesome, 16bit, menu.
+
+<insert menu.png here>
+
+Now we can scroll through the menu using the arrow keys. When hitting enter
+we get to see some information and explanation by the author about his
+interest in this particular project.
+
+However, earlier I mentioned some interesting if-statements. It appears that
+there is some sort of state machine consisting of a global variable which
+keeps a count. The ah register, the upper 8 bits of the ax register, is
+compared to various constant immediates, depending on the count of the global
+variable. If the ah register matches the immediate value, then the global
+variable is increased, otherwise it's set to zero. When the count reaches six,
+however, a special function is called.
+
+The immediates are the following, sorted by the value of the global counter,
+0x19 0x12 0x31 0x2e 0x17 0x26. Now, according to interrupt 0x16, with ax set
+to zero, the return value in the ah register is the scan code, and the return
+value in the al register is the character. So we have to find some kind of
+lookup table for the magic values, as they represent scan codes.
+
+One can be found at the following URL
+http://hp.vector.co.jp/authors/VA003720/lpproj/others/kbdjpn.htm, if you
+scroll down to the "DOS/BIOS Scan Code and Character" section.
+
+Cross-referencing the "Keyboard Scan Code 1" column against the "Keytop char
+(US English)" column, we find that the magic values represent the word pensil.
+
+Typing this word, while in the menu, gives us the following screen:
+
+<insert solution.png here>
+
+The flag is, N0w_1_4m_4n_0ld$k001_}{4ck3r. I'd like to thank the author of
+this challenge for making such a cool challenge.
