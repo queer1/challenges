@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -std=c99 -Wall
 
 PINTOOL = ..\..\..\pintool
-DLLS = dump-x86.dll tracert-x86.dll baboon-x86.dll
+DLLS = tracert-x86.dll baboon-x86.dll
 SOURCES = $(wildcard *.cpp)
 LINK = C:/ProgFiles86/Microsoft\ Visual\ Studio\ 10.0/VC/Bin/link.exe
 
