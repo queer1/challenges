@@ -80,6 +80,7 @@ void fini(INT32 code, void *v)
         for (int i = 0; i < 256; i++) {
             printf("0x%02x, ", table[i]);
         }
+        printf("\n");
         fflush(stdout);
     }
 }

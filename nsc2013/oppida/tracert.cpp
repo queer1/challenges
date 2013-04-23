@@ -7,6 +7,11 @@ int only_main_module = 0;
 void execute_instruction(ADDRINT addr, const char *insns)
 {
     printf("0x%lx: %s  |  ", addr, insns);
+
+    // manually place a newline for conditional jumps..
+    if(*insns == 'j' && insns[1] != 'm') {
+        printf("\n");
+    }
 }
 
 void dump_read_memory(void *ptr, ADDRINT size)
