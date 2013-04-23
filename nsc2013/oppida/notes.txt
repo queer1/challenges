@@ -1,0 +1,29 @@
+input & output hashes
+
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+44 17 29 0E 96 76 80 ED 47 48 7D 6C A1 03 99 8B
+
+00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF
+7D CE 69 88 AE 0E 74 8C 89 11 2D 3E 2A C5 F7 CE
+
+
+Dump an instruction trace with tracert from
+5908bb880a685bd7cdb226c50d9186db5776ccda and execute the following command.
+
+$ grep 'ptr \[' log.txt |grep '*4'|grep lea|grep -v j|cut -d+ -f2|cut -d] -f1
+
+We will now have the addresses of all the jump tables which only set a
+hardcoded imm8 to a hardcoded address. Using the table dumper in baboon.cpp
+from 69b1bc2f32628fc791cc27dcc7e08a8df1d51aec we can then dump the tables.
+
+The bash script dump.sh will dump all tables, one at a time. Dump these tables
+to a python file, so we can import them later.
+
+
+Besides jump tables, we also have to dump various simple lookup tables. We
+find them by running the following command against one of the newer logs.
+
+$ egrep '(lea|mov)' jemoeder1a|grep '\['|py logparser.py a
+
+From there on, we dump them using dump.sh with our dumpmem.py script, which
+reads the bytes directly from the binary.
