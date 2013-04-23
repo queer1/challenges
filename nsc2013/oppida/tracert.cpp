@@ -103,6 +103,11 @@ void dump_reg_w_after(UINT32 idx, ADDRINT value)
 
 void print_newline()
 {
+    printf("\n# state = ");
+    unsigned char *output = (unsigned char *) 0x617010;
+    for (int i = 0; i < 16; i++) {
+        printf("0x%02x, ", output[i]);
+    }
     printf("\n");
 }
 

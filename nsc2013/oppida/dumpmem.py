@@ -10,7 +10,12 @@ if __name__ == '__main__':
     diff = int(sys.argv[2], 16)
     length = int(sys.argv[3], 16)
 
+    print 'buf = open("baboon.exe", "rb").read()'
+    print 'class SuperList(list):'
+    print '    def __getitem__(self, idx):'
+    print '        return ord(list.__getitem__(self, idx))'
     for addr in sys.argv[4:]:
         base = int(addr, 16)-0x400000-diff
-        print 'table_%s_tbl =' % addr[2:],
-        print ', '.join('0x%02x' % ord(x) for x in buf[base:base+length])
+        print 'table_%s_tbl = SuperList(buf[0x%08x:0x%08x])' % \
+              (addr[2:], base, base+length)
+        #print ', '.join('0x%02x' % ord(x) for x in buf[base:base+length])
