@@ -27,3 +27,10 @@ $ egrep '(lea|mov)' jemoeder1a|grep '\['|py logparser.py a
 
 From there on, we dump them using dump.sh with our dumpmem.py script, which
 reads the bytes directly from the binary.
+
+We then automatically create imitator.py, which gives the same output as the
+original binary. To make life easier the imitator.py dumps a SSA version.
+
+$ egrep '(lea|mov|state)' jemoeder1b |egrep '(\[|\#)'|py logparser.py >imitator.py
+
+From here on we create the keygen.
