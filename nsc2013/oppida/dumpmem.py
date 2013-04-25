@@ -11,11 +11,13 @@ if __name__ == '__main__':
     length = int(sys.argv[3], 16)
 
     print 'buf = open("baboon.exe", "rb").read()'
-    print 'class SuperList(list):'
+    print 'class SuperList:'
+    print '    def __init__(self, base, end):'
+    print '        self.base = base'
     print '    def __getitem__(self, idx):'
-    print '        return ord(list.__getitem__(self, idx))'
+    print '        return ord(buf[self.base+idx])'
     for addr in sys.argv[4:]:
         base = int(addr, 16)-0x400000-diff
-        print 'table_%s_tbl = SuperList(buf[0x%08x:0x%08x])' % \
+        print 'table_%s_tbl = SuperList(0x%08x, 0x%08x)' % \
               (addr[2:], base, base+length)
         #print ', '.join('0x%02x' % ord(x) for x in buf[base:base+length])

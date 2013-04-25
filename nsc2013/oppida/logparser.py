@@ -17,7 +17,8 @@ if __name__ == '__main__':
     if not get_tables:
         print 'import hashlib'
         print 'import sys'
-        print 'import tables\n\n'
+        print 'import tables'
+        print 'import utilz\n\n'
         if not is_keygen:
             print 'if len(sys.argv) != 2 or len(sys.argv[1]) != 32:'
             print '    print "Usage: python %s <hash>" % sys.argv[0]'
@@ -35,11 +36,7 @@ if __name__ == '__main__':
             #print 'output = hashlib.md5(sys.argv[1]).digest()'
             print 'output = sys.argv[1].decode("hex")'
             print 'output = [ord(x) for x in output]'
-            print 'def getfirst(tbl, value, large=False):'
-            print '    start = 0x1000 if large else 0'
-            print '    for x in xrange(start, len(tbl)):'
-            print '        if tbl[x] == value:'
-            print '            return x'
+
     print
 
     statements = []
@@ -115,32 +112,94 @@ if __name__ == '__main__':
                                                                 read_addr)
                         #print 'assert output == [%s], output' % state
                     else:
-                        if not read_addr0:
-                            statements.append(
-                                '%s = getfirst(tables.table_%x_tbl, %s)' %
-                                (read_addr, table_addr, write_addr))
-                        else:
-                            statements.append(
-                                ('val = getfirst(tables.table_%x_tbl, %s, True)\n' +
-                                 '%s = val >> 8\n' +
-                                 '%s = val & 0xff') %
-                                (table_addr, write_addr, read_addr0,
-                                 read_addr))
-                            read_addr0 = None
+                        statements.append((read_addr, read_addr0,
+                                           table_addr, write_addr))
+                        read_addr0 = None
                 else:
                     print '0x%08x' % table_addr
                 read_addr = table_addr = write_addr = None
-                print
+
+    # read the tree nodes
+    tree_nodes = [x.strip() for x in open('tree_nodes.txt')]
+
+    # read all nodes into a dictionary for easy lookup
+    lookup = dict((write, (read, read0, table, write))
+                  for read, read0, table, write in statements)
+
+    # for the keygen, the output variables are known at first
+    output = ['var_0061701%x_%d' % (x, var_count['var_0061701%x' % x])
+              for x in xrange(16)]
+
+    print 'output =', ', '.join(repr(x) for x in output)
+    print
+
+    def walk_node(name, cnt=0):
+        if not name in lookup:
+            print '# INPUT', name
+            return
+
+        r, r0, t, w = lookup[name]
+
+        r_repr = r if not r0 else '(%s << 8) + %s' % (r0, r)
+        print '\t'*cnt, '%s = tables.table_%x_tbl[%s]' % (w, t, r_repr)
+
+        walk_node(r, cnt+1)
+        if r0:
+            walk_node(r0, cnt+1)
+
+        """
+        if name in tree_nodes:
+            for r, r2, _, w in statements:
+                if r == name or r2 == name:
+                    walk_node(w, cnt+1)
+                    print
+        """
+
+    #for x in xrange(16):
+    #walk_node(output[0])
+    #walk_children('var_00617017_9')
+    #walk_children('var_005ec1a8_10')
+    #exit(0)
+
+    # copy the output variables into the list of known variables
+    known = output[:]
+
+    # if we're making the keygen, then we have to create all statements in
+    # reversed order, hence we first have to collect all variables etc.
+    #statements = statements[::-1]
+    if is_keygen:
+        print 'supertable = ['
+    for idx, (read, read0, table, write) in enumerate(statements):
+        if not read0:
+            print '    (%s, None, "table_%x_tbl", %s),' % (repr(read),
+                                                           table,
+                                                           repr(write))
+        else:
+            print '    (%s, %s, "table_%x_tbl", %s),' % (repr(read),
+                                                         repr(read0),
+                                                         table,
+                                                         repr(write))
+        continue
+        if write in tree_nodes or read in tree_nodes:
+            print '%s = KILL(tables.table_%x_tbl, %s)' % (read, table, write)
+        if not read0:
+            print '%s = WITH(tables.table_%x_tbl, %s)' % \
+                  (read, table, write)
+            print 'print %s, %s.keys()' % (repr(read), read)
+        else:
+            print '%s, %s = FIRE(tables.table_%x_tbl, %s)' % \
+                  (read, read0, table, write)
+    if is_keygen:
+        print ']'
+        print 'utilz.killit(supertable, output)'
 
     if get_tables:
         print '\n'.join('0x%x' % x for x in required_tables)
     else:
         print
         if not is_keygen:
-            output = ['var_0061701%x_%d' % (x, var_count['var_0061701%x' % x])
-                      for x in xrange(16)]
             print 'print "".join(chr(x) for x in (%s)).encode("hex")' % \
                   ', '.join(output)
         else:
-            print '\n'.join(statements[::-1])
-            print 'print "".join(chr(x) for x in input).encode("hex")'
+            #print 'print "".join(chr(x) for x in input).encode("hex")'
+            pass
