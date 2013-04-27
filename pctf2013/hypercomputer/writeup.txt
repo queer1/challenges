@@ -1,0 +1,215 @@
+
+.. quote ..
+
+hypercomputer-1
+
+For those who didn't play plaidCTF 2012: "supercomputer" was a reversing
+challenge that computed flags using really silly math (like adding in a loop
+instead of mulitplication). hypercomputer is easier... if you do it right :P
+
+.. /quote ..
+
+
+I remember the supercomputer challenge from last year, as I attempted it last
+year as well. I don't think we got it back then, but we had more luck and
+awesomeness this year!
+
+Running the hypercomputer binary in bash gives us a welcome message after
+waiting for too much time. After analyzing the binary a bit we noticed various
+usleep() calls. This function makes the binary wait before it can continue and
+in this challenge we don't like waiting.
+
+Knowing roughly what the challenge looked like last year, I decided to start
+working on a pintool to automate the optimizations and tweaks. The following
+functions is part of our pintool and replaces the usleep() function with
+return 0 (success.)
+
+[cpp]
+
+int new_usleep(useconds_t usec)
+{
+    return 0;
+}
+
+VOID Image(IMG img, VOID *v)
+{
+    for (SYM sym = IMG_RegsymHead(img); SYM_Valid(sym); sym = SYM_Next(sym)) {
+        string funcname = PIN_UndecorateSymbolName(SYM_Name(sym), UNDECORATION_NAME_ONLY);
+        if(funcname == "usleep") {
+            RTN rtn = RTN_FindByAddress(IMG_LowAddress(img) + SYM_Value(sym));
+            if(RTN_Valid(rtn)) {
+                RTN_Open(rtn);
+                RTN_Replace(rtn, (AFUNPTR) &new_usleep);
+                RTN_Close(rtn);
+            }
+        }
+    }
+}
+
+[/cpp]
+
+Explanation: in our pintool, the Image function is called every time a shared
+object is loaded (e.g., the main module, libc, etc.) For each shared object we
+enumerate all the symbols it exports. At some point we will find the usleep()
+function. We then replace this function with our own function, using the
+RTN_Replace() function from Pin.
+
+Running hypercomputer under our pintool we find that it runs somewhat faster -
+it no longer has to wait for all the usleep() calls. However, just like last
+year, this binary contains various expensive loops which can be reduced to a
+single instruction.
+
+An example of such loop is the following:
+
+400c0e:       48 83 e8 01             sub    $0x1,%rax
+400c12:       75 fa                   jne    400c0e <usleep@plt+0x49e>
+
+This loops keeps decrementing the rax register while rax is not null. In our
+pintool we replace this with something similar to "xor rax, rax", as can be
+seen in the following snippet.
+
+[cpp]
+
+void xor_rax(CONTEXT *ctx)
+{
+    PIN_SetContextReg(ctx, REG_RAX, 0);
+}
+
+void delete_insns(BBL bbl)
+{
+    for (INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+        INS_Delete(ins);
+    }
+}
+
+VOID Trace(TRACE trace, VOID *v)
+{
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
+        if(BBL_NumIns(bbl) == 2) {
+            INS ins1 = BBL_InsHead(bbl);
+            INS ins2 = INS_Next(ins1);
+            if(INS_Disassemble(ins1) == "sub rax, 0x1" && INS_IsBranch(ins2) &&
+                    INS_DirectBranchOrCallTargetAddress(ins2) == BBL_Address(bbl)) {
+                BBL_InsertCall(bbl, IPOINT_BEFORE, (AFUNPTR) &xor_rax, IARG_CONTEXT, IARG_END);
+                delete_insns(bbl);
+            }
+        }
+    }
+}
+
+[/cpp]
+
+Explanation: in our pintool, the Trace function is called for every basic
+block that Pin encounters. That way we can analyze and rewrite them any way we
+want. In the Trace function we check if the basic block consists of two
+instructions. If so, we check if the first is "sub rax, 0x1" and if the second
+instruction is a (conditional) jump to the first instruction. If these
+constraints have been met, we insert our handler for this basic block and
+delete the original instructions (i.e., they won't be executed after our
+handler.) In our handler we set the contents of the rax register to null using
+the PIN_SetContextReg() function.
+
+I found a few more of these loops, namely a loop like the one above, but with
+a nop instruction between the sub and jump instructions and a loop which
+increments rax by one and checks it against rdx. I nopped this one out by
+assigning rdx to rax directly, just like set rax to zero above.
+
+At this point the binary started to use more advanced loops, unfortunately. We
+didn't get to solve these :-( Luckily though, after turning off debugging
+output, we got the flag for the first challenge!
+
+Following is the final pintool.
+
+[cpp]
+
+#include "pin.H"
+#include <iostream>
+#include <fstream>
+#include <unistd.h>
+#include <unistd.h>
+
+int new_usleep(useconds_t usec)
+{
+    return 0;
+}
+
+VOID Image(IMG img, VOID *v)
+{
+    for (SYM sym = IMG_RegsymHead(img); SYM_Valid(sym); sym = SYM_Next(sym)) {
+        string funcname = PIN_UndecorateSymbolName(SYM_Name(sym), UNDECORATION_NAME_ONLY);
+        if(funcname == "usleep") {
+            RTN rtn = RTN_FindByAddress(IMG_LowAddress(img) + SYM_Value(sym));
+            if(RTN_Valid(rtn)) {
+                RTN_Open(rtn);
+                RTN_Replace(rtn, (AFUNPTR) &new_usleep);
+                RTN_Close(rtn);
+            }
+        }
+    }
+}
+
+void xor_rax(CONTEXT *ctx)
+{
+    PIN_SetContextReg(ctx, REG_RAX, 0);
+}
+
+void mov_rax_rdx(CONTEXT *ctx)
+{
+    ADDRINT rdx = PIN_GetContextReg(ctx, REG_RDX);
+    PIN_SetContextReg(ctx, REG_RAX, rdx);
+}
+
+void delete_insns(BBL bbl)
+{
+    for (INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+        INS_Delete(ins);
+    }
+}
+
+VOID Trace(TRACE trace, VOID *v)
+{
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
+        if(BBL_NumIns(bbl) == 2) {
+            INS ins1 = BBL_InsHead(bbl);
+            INS ins2 = INS_Next(ins1);
+            if(INS_Disassemble(ins1) == "sub rax, 0x1" && INS_IsBranch(ins2) &&
+                    INS_DirectBranchOrCallTargetAddress(ins2) == BBL_Address(bbl)) {
+                BBL_InsertCall(bbl, IPOINT_BEFORE, (AFUNPTR) &xor_rax, IARG_CONTEXT, IARG_END);
+                delete_insns(bbl);
+            }
+        }
+        else if(BBL_NumIns(bbl) == 3) {
+            INS ins1 = BBL_InsHead(bbl);
+            INS ins2 = INS_Next(ins1);
+            INS ins3 = INS_Next(ins2);
+            if(INS_Disassemble(ins1) == "sub rax, 0x1" && INS_IsNop(ins2) &&
+                    INS_DirectBranchOrCallTargetAddress(ins3) == BBL_Address(bbl)) {
+                BBL_InsertCall(bbl, IPOINT_BEFORE, (AFUNPTR) &xor_rax, IARG_CONTEXT, IARG_END);
+                delete_insns(bbl);
+            }
+            else if(INS_Disassemble(ins1) == "add rax, 0x1" &&
+                    INS_Disassemble(ins2) == "cmp rax, rdx" &&
+                    INS_DirectBranchOrCallTargetAddress(ins3) == BBL_Address(bbl)) {
+                BBL_InsertCall(bbl, IPOINT_BEFORE, (AFUNPTR) &mov_rax_rdx, IARG_CONTEXT, IARG_END);
+                delete_insns(bbl);
+            }
+        }
+    }
+}
+
+int main(int argc, char *argv[])
+{
+    if(PIN_Init(argc,argv)) {
+        return 0;
+    }
+
+    PIN_InitSymbols();
+
+    IMG_AddInstrumentFunction(Image, 0);
+    TRACE_AddInstrumentFunction(Trace, 0);
+
+    PIN_StartProgram();
+    return 0;
+}
+
+[/cpp]
