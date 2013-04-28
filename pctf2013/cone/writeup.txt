@@ -1,0 +1,305 @@
+Cone is an obfuscated binary which reads a key from stdin and either approves
+it or denies it. After reading our magic instruction trace we found out that
+the underlying algorithm of this binary consists of only a few operations. The
+following is a representation of the algorithm in Python.
+
+[code lang=python]
+import sys
+import struct
+
+
+# the input string
+s = sys.argv[1]
+
+# pad the string upto four bytes if it's less (which is the case
+# for the last part, which consists of only three bytes)
+num = struct.unpack('I', s + '\x00' * (4 - len(s)))[0]
+
+# shift a bit, xor with deadbeef, and add deadbeef
+print ((((num << 0x15) | (num >> 0x15)) ^ 0xdeadbeef) + 0xdeadbeef) % 2**32
+[/code]
+
+At this point we can either make a bruteforcer ourselves, or let Z3 do the
+dirty job. Sometime ago Rolf Rolles answered a fun question by providing a
+theorem-prover based solution. This small answer can be found here:
+http://stackoverflow.com/questions/14547087/extracting-bits-with-a-single-multiplication/14551792#14551792
+
+Based on this solution we made our own Z3 solver. First one must learn a bit
+about SMT solvers; as we operate the integers on a bit-level here, we must use
+BitVectors. These BitVectors can be pretty much any size, but here we'll use
+32 bit-sized BitVectors as our required numbers are 32-bits. Our first attempt
+in making the Z3 solver was based on the LIB-SMT2 library; basically one
+submits a .smt2 file to the z3 binary and it gives a result in return.
+
+Our first .smt2 file looked like the following. (Note that #xdeadbeef
+represents a hexadecimal value which will be interpreted as BitVector.)
+
+[code]
+(set-logic BV)
+
+(declare-const input (_ BitVec 32))
+
+(assert
+    (=
+        ; algorithm from the binary
+        (bvadd
+            (bvxor
+                (bvor
+                    (bvshl input (_ bv21 32))
+                    (bvashr input (_ bv21 32)))
+                #xdeadbeef)
+            #xdeadbeef)
+
+        ; magic value from the binary
+        #x2f5b7b03))
+
+(check-sat)
+(get-model)
+[/code]
+
+So what happens here? First we declared our input variable, which is a 32-bit
+BitVector. Then we make an assert that the following condition(s) must be met.
+In this condition, we encode our desired algorithm into the LIB-SMT2
+equivalent. Our input is first shifted, using *bvshl* and *bvshr*. These are
+the BitVector variants of shl (shift left) and shr (shift right.) The results
+of these two values are then or'd, using bvor (again, the BitVector version of
+*or*.) This value is then xor'd with 0xdeadbeef, and finally 0xdeadbeef is
+added to it. After these operations, the output value is compared to a magic
+value which we got from the binary. Namely in a compare instruction which
+compared our value to the magic value.
+
+By asserting Z3 that the shuffled input value must match the given magic value
+it will then go on a relatively short journey to find our value. And yes,
+after a few dozen milliseconds it finds a candidate:
+
+[code lang=bash]
+$ z3.exe cone.smt2
+sat
+(model
+  (define-fun input () (_ BitVec 32)
+    #x5f600470)
+)
+[/code]
+
+As we can see, the output is 0x5f600470. However, we'll have to encode this
+32-bit number as 4 characters, and earlier we saw in the binary that
+(logically) only readable characters are allowed. Hence this value will be
+discarded (as it contains \x04.) We modified our solver a bit to discard
+various hardcoded values (these were added on-demand.) Finally, to get a
+correct solution for the first magic value we got the following solver.
+
+[code]
+(set-logic BV)
+
+(declare-const input (_ BitVec 32))
+
+(assert
+    (and
+        ; input may not match any of the following values
+        (not (= input #x5f600470))
+        (not (= input #x5f600c70))
+        (not (= input #x5f601470))
+        (not (= input #x5f601c70))
+
+        ; compute a correct input value
+        (=
+            (bvadd
+                (bvxor
+                    (bvor
+                        (bvshl input (_ bv21 32))
+                        (bvashr input (_ bv21 32)))
+                    #xdeadbeef)
+                #xdeadbeef)
+            #x2f5b7b03)))
+
+(check-sat)
+(get-model)
+[/code]
+
+[code lang=bash]
+$ z3.exe cone.smt2
+sat
+(model
+  (define-fun input () (_ BitVec 32)
+    #x5f602470)
+)
+[/code]
+
+As you can see, it's pretty ugly, but it does the job; the output variable is
+0x5f602470, which is accepted by the cone binary (as each character represents
+a readable one.) From here on we kept adding values to the blacklist as we got
+four bad values for every magic value we found in the binary (it turns out
+there were nine magic values.) After running all the magic values through our
+solver we got a solution that surprised the organizers, so that's nice :)
+
+[code]
+19:28:18 <skier_> i can haz readable flag ;P
+19:28:36 <skier_> p$`_s%`d_0`lp7`m_!`_a7`ta#`_m!`hin`
+19:28:38 <skier_> lol
+19:28:46 <ricky> Woah, that's accepted by the new one?
+19:28:49 <skier_> ya
+[/code]
+
+Our final solution in LIB-SMT2 can be found on the end of this blogpost.
+However, we'll now dive into the Python bindings of Z3, which makes life a lot
+cooler and easier.
+
+First we take a function from the following StackOverflow post:
+http://stackoverflow.com/questions/11867611/. The function presented in this
+answer basically takes a set of conditions to be met and then adds the results
+retrieved from the solver to the blacklist until the solver can't find any new
+solutions. This way we can get multiple/all solutions from the solver (which
+is literally impossible with LIB-SMT2.)
+
+That said, we have to re-implement our conditions in Python. First we define
+an input BitVector and a temporary BitVector (which really only splits the
+algorithm up into two smaller conditions), then we define the two conditions,
+and finally we run the results through a checker (i.e., we run each 8-bit
+value of the result through a checker to check if it's a valid character.)
+This results in the following code. Note that the Z3 Python bindings do quite
+some operator overloading which allows us to do "bitvector << val" etc.
+
+[code lang=python]
+import random
+import struct
+from z3 import Solver, BitVecs, BitVecVal, And, Or
+from z3 import sat, is_array, Z3Exception, Z3_UNINTERPRETED_SORT
+
+
+# Return all the models of formula list of formulas F
+def get_models(F):
+    result = []
+    s = Solver()
+    s.add(F)
+    while True:
+        if s.check() == sat:
+            m = s.model()
+            result.append(m)
+            # Create a new constraint the blocks the current model
+            block = []
+            for d in m:
+                # d is a declaration
+                if d.arity() > 0:
+                    raise Z3Exception(
+                        "uninterpreted functions are not suppported")
+                # create a constant from declaration
+                c = d()
+                if is_array(c) or c.sort().kind() == Z3_UNINTERPRETED_SORT:
+                    raise Z3Exception(
+                        "arrays and uninterpreted sorts are not supported")
+                block.append(c != m[d])
+            s.add(Or(block))
+        else:
+            return result
+
+
+# this function checks whether each character is either an
+# underscore or lowercase ascii
+def is_lower_underscore(x):
+    return Or(x == 0x5f, And(x >= 0x61, x <= 0x7a))
+
+
+def get_combinations(magic, checker):
+    # input and temporary bitvectors
+    i, tmp = BitVecs('input temp', 32)
+    F = [
+         # first condition - temp equals the shifted input
+         tmp == ((i << BitVecVal(21, 32)) | (i >> BitVecVal(21, 32))),
+
+         # second condition
+         (0xdeadbeef + (0xdeadbeef ^ tmp)) == magic,
+
+         # check if each character is readable
+         checker((i >> 0) & 0xff),
+         checker((i >> 8) & 0xff),
+         checker((i >> 16) & 0xff)]
+
+    # the last magic value only has three input characters, so..
+    if magic != 0xf23b7ddb:
+        F.append(checker((i >> 24) & 0xff))
+
+    # get all models and retrieve the 32bit combinations
+    # bit hacky, but that's Z3.
+    return [x[x[0]].as_long() for x in get_models(F)]
+
+
+# each magic value from the binary
+l = [0x2f5b7b03, 0x4f7b7cbb, 0xb3fb7c7b, 0x0f5b7c73, 0xd3fb7b03,
+     0x113b7c3b, 0x913b7b03, 0xd1bb7c9b, 0xf23b7ddb]
+combinations = [get_combinations(x, is_lower_underscore) for x in l]
+
+# print 50 random keys
+for _ in xrange(50):
+    print ''.join(struct.pack('I', random.choice(combinations[x]))
+                  for x in xrange(len(combinations)))
+[/code]
+
+[code lang=bash]
+$ python cone.py
+pdj_smod_pglp_zm_yo_awctakg_mayhivx
+pdk_smdd_xslpgnm_im_a_ktakf_miphifc
+pdc_smxd_phlpglm_ai_aobtacr_mayhivf
+pdj_sehd_hnlp_jm_ig_agqtakh_mixhins
+[..]
+[/code]
+
+Well, that was pretty cool. Following is also the final LIB-SMT2 file. Note
+that you have to uncomment a magic value if you want a solution for that one
+(and can only have one uncommented magic value at a time.)
+
+[code]
+(set-logic BV)
+
+(declare-const input (_ BitVec 32))
+
+(assert
+    (and
+        (not (= input #x5f600470))
+        (not (= input #x5f600c70))
+        (not (= input #x5f601470))
+        (not (= input #x5f601c70))
+        (not (= input #x64600573))
+        (not (= input #x64600d73))
+        (not (= input #x64601573))
+        (not (= input #x64601d73))
+        (not (= input #x6c60005f))
+        (not (= input #x6c60085f))
+        (not (= input #x6c60105f))
+        (not (= input #x6c60185f))
+        (not (= input #x6c60205f))
+        (not (= input #x6d600770))
+        (not (= input #x6d600f70))
+        (not (= input #x6d601770))
+        (not (= input #x6d601f70))
+        (not (= input #x6d602770))
+        (not (= input #x5f60015f))
+        (not (= input #x5f60095f))
+        (not (= input #x5f60115f))
+        (not (= input #x5f60195f))
+        (not (= input #x74600761))
+        (not (= input #x74600f61))
+        (not (= input #x74601761))
+        (not (= input #x74601f61))
+        (not (= input #x74602761))
+        (not (= input #x00606669))
+        (=
+            (bvadd
+                (bvxor
+                    (bvor
+                        (bvshl input (_ bv21 32))
+                        (bvashr input (_ bv21 32)))
+                    #xdeadbeef)
+                #xdeadbeef)
+            ; #x2f5b7b03)))
+            ; #x4f7b7cbb)))
+            ; #xb3fb7c7b)))
+            ; #x0f5b7c73)))
+            ; #xd3fb7b03)))
+            ; #x113b7c3b)))
+            ; #x913b7b03)))
+            ; #xd1bb7c9b)))
+            #xf23b7ddb)))
+
+(check-sat)
+(get-model)
+[/code]

@@ -1,0 +1,61 @@
+(set-logic BV)
+
+(declare-const input (_ BitVec 32))
+
+(define-fun isvalid ((ch (_ BitVec 32))) Bool
+    (and (bvugt ch (_ bv47 32)) (bvult ch (_ bv123 32))))
+
+(assert
+    (and
+        ;(not (= input #x5f600470))
+        ;(not (= input #x5f600c70))
+        ;(not (= input #x5f601470))
+        ;(not (= input #x5f601c70))
+        ;(not (= input #x64600573))
+        ;(not (= input #x64600d73))
+        ;(not (= input #x64601573))
+        ;(not (= input #x64601d73))
+        ;(not (= input #x6c60005f))
+        ;(not (= input #x6c60085f))
+        ;(not (= input #x6c60105f))
+        ;(not (= input #x6c60185f))
+        ;(not (= input #x6c60205f))
+        ;(not (= input #x6d600770))
+        ;(not (= input #x6d600f70))
+        ;(not (= input #x6d601770))
+        ;(not (= input #x6d601f70))
+        ;(not (= input #x6d602770))
+        ;(not (= input #x5f60015f))
+        ;(not (= input #x5f60095f))
+        ;(not (= input #x5f60115f))
+        ;(not (= input #x5f60195f))
+        ;(not (= input #x74600761))
+        ;(not (= input #x74600f61))
+        ;(not (= input #x74601761))
+        ;(not (= input #x74601f61))
+        ;(not (= input #x74602761))
+        ;(not (= input #x00606669))
+        (isvalid (bvand (bvashr input (_ bv0 32)) (_ bv255 32)))
+        (isvalid (bvand (bvashr input (_ bv8 32)) (_ bv255 32)))
+        (isvalid (bvand (bvashr input (_ bv16 32)) (_ bv255 32)))
+        (isvalid (bvand (bvashr input (_ bv24 32)) (_ bv255 32)))
+        (=
+            (bvadd
+                (bvxor
+                    (bvor
+                        (bvshl input (_ bv21 32))
+                        (bvashr input (_ bv21 32)))
+                    #xdeadbeef)
+                #xdeadbeef)
+            #x2f5b7b03)))
+            ; #x4f7b7cbb)))
+            ; #xb3fb7c7b)))
+            ; #x0f5b7c73)))
+            ; #xd3fb7b03)))
+            ; #x113b7c3b)))
+            ; #x913b7b03)))
+            ; #xd1bb7c9b)))
+            ; #xf23b7ddb)))
+
+(check-sat)
+(get-model)
